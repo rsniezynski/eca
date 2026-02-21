@@ -19,11 +19,13 @@
   (str (random-uuid)))
 
 (defn ^:private parse-usage [usage]
-  (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)]
+  (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)
+        prompt-tokens (or (:prompt_tokens usage) (:prompt_n usage))
+        completion-tokens (or (:completion_tokens usage) (:predicted_n usage))]
     {:input-tokens (if input-cache-read-tokens
-                     (- (:prompt_tokens usage) input-cache-read-tokens)
-                     (:prompt_tokens usage))
-     :output-tokens (:completion_tokens usage)
+                     (- prompt-tokens input-cache-read-tokens)
+                     prompt-tokens)
+     :output-tokens completion-tokens
      :input-cache-read-tokens input-cache-read-tokens}))
 
 (defn ^:private extract-content
@@ -69,7 +71,7 @@
                          (assoc :name (:full-name tool)))})
         tools))
 
-(defn ^:private response-body->result [{:keys [choices usage]} on-tools-called-wrapper]
+(defn ^:private response-body->result [{:keys [choices timings]} on-tools-called-wrapper]
   (when (> (count choices) 1)
     (throw (ex-info "Multiple choices in response!" {})))
   (let [message (-> choices first :message)
@@ -101,7 +103,7 @@
                            vec)
         ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
         reasoning-content (:reasoning_content message)]
-    {:usage (parse-usage usage)
+    {:usage (parse-usage timings)
      :reason-id (str (random-uuid))
      :tools-to-call tools-to-call
      :call-tools-fn (fn [on-tools-called]
@@ -616,7 +618,7 @@
                                     (when (and (not= finish-reason "tool_calls")
                                                (empty? @tool-calls*))
                                       (on-message-received {:type :finish :finish-reason finish-reason})))))))
-                          (when-let [usage (:usage data)]
+                          (when-let [usage (:timings data)]
                             (on-usage-updated (parse-usage usage))))
         rid (llm-util/gen-rid)]
     (base-chat-request!
